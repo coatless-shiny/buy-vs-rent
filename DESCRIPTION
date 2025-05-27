@@ -1,0 +1,23 @@
+Package: buyvsrent
+Title: Buy vs. Rent
+Version: 0.0.0.9000
+Authors@R: 
+    person("James Joseph", "Balamuta", email = "james.balamuta@gmail.com", 
+           role = c("aut", "cre", "cph"), 
+           comment = c(ORCID = "0000-0003-2826-8458"))
+Description: A Shiny application for understanding whether to buy a house with 
+    mortgage or rent an apartment/house.
+URL: https://github.com/coatless-shiny/buy-vs-rent, https://shiny.thecoatlessprofessor.com/buy-vs-rent/
+BugReports: https://github.com/coatless-shiny/buy-vs-rent/issues
+License: AGPL (>= 3)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports: 
+    shiny, 
+    dplyr, 
+    DT, 
+    plotly
+Depends: 
+    R (>= 4.4.0)
+LazyData: true
