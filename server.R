@@ -252,30 +252,30 @@ server <- function(input, output, session) {
         p
     })
 
-    # Breakdown table
-    output$breakdown_table <- DT::renderDataTable({
-        calc <- calculations()
-
-        years <- 1:input$time_horizon
-
-        df <- data.frame(
-            Year = years,
-            Annual_Rent = calc$rent_costs,
-            Annual_Ownership = calc$buy_costs$annual_cost,
-            Annual_PMI = calc$buy_costs$annual_pmi,
-            Annual_HOA = calc$buy_costs$annual_hoa,
-            Home_Value = calc$buy_costs$home_value,
-            Equity_Built = calc$buy_costs$equity,
-            Opportunity_Cost = calc$buy_costs$opportunity_cost
-        )
-
-        # Format as currency
-        df[, 2:8] <- lapply(df[, 2:8], function(x) paste0("$", format(round(x), big.mark = ",")))
-
-        DT::datatable(df, options = list(pageLength = 10, scrollX = TRUE),
-                      colnames = c("Year", "Annual Rent", "Annual Ownership", "Annual PMI",
-                                   "Annual HOA", "Home Value", "Equity Built", "Opportunity Cost"))
-    })
+    # Breakdown table (removed temporarily)
+    # output$breakdown_table <- DT::renderDataTable({
+    #     calc <- calculations()
+    #
+    #     years <- 1:input$time_horizon
+    #
+    #     df <- data.frame(
+    #         Year = years,
+    #         Annual_Rent = calc$rent_costs,
+    #         Annual_Ownership = calc$buy_costs$annual_cost,
+    #         Annual_PMI = calc$buy_costs$annual_pmi,
+    #         Annual_HOA = calc$buy_costs$annual_hoa,
+    #         Home_Value = calc$buy_costs$home_value,
+    #         Equity_Built = calc$buy_costs$equity,
+    #         Opportunity_Cost = calc$buy_costs$opportunity_cost
+    #     )
+    #
+    #     # Format as currency
+    #     df[, 2:8] <- lapply(df[, 2:8], function(x) paste0("$", format(round(x), big.mark = ",")))
+    #
+    #     DT::datatable(df, options = list(pageLength = 10, scrollX = TRUE),
+    #                   colnames = c("Year", "Annual Rent", "Annual Ownership", "Annual PMI",
+    #                                "Annual HOA", "Home Value", "Equity Built", "Opportunity Cost"))
+    # })
 
     # Mortgage calculations for guide tab
     output$loan_amount <- renderText({
@@ -293,6 +293,19 @@ server <- function(input, output, session) {
         total_payments <- calc$monthly_pi * input$loan_term * 12
         total_interest <- total_payments - calc$loan_amount
         paste0("$", format(round(total_interest), big.mark = ","))
+    })
+
+    output$total_loan_cost <- renderText({
+        calc <- calculations()
+        total_payments <- calc$monthly_pi * input$loan_term * 12
+        paste0("$", format(round(total_payments), big.mark = ","))
+    })
+
+    output$payoff_date <- renderText({
+        # Calculate payoff date from current date
+        current_date <- Sys.Date()
+        payoff_date <- current_date + (input$loan_term * 365.25)  # Account for leap years
+        format(payoff_date, "%B %Y")
     })
 
     output$payment_breakdown <- renderTable({
@@ -328,7 +341,84 @@ server <- function(input, output, session) {
         )
     }, colnames = FALSE)
 
-    # Summary payment breakdown for main tab
+    # Payment breakdown treemap for main tab
+    output$payment_breakdown_treemap <- renderPlotly({
+        calc <- calculations()
+
+        # Create data frame with all cost components
+        components <- c("Principal & Interest", "Property Tax", "Insurance", "Maintenance")
+        values <- c(calc$monthly_pi, calc$monthly_property_tax, calc$monthly_insurance, calc$monthly_maintenance)
+        colors <- c("#2C3E50", "#E74C3C", "#F39C12", "#8E44AD")
+
+        # Add PMI if required
+        if(calc$pmi_required) {
+            components <- c(components, "PMI")
+            values <- c(values, calc$monthly_pmi)
+            colors <- c(colors, "#E67E22")
+        }
+
+        # Add HOA if > 0
+        if(input$hoa_monthly > 0) {
+            components <- c(components, "HOA")
+            values <- c(values, calc$monthly_hoa)
+            colors <- c(colors, "#27AE60")
+        }
+
+        # Create treemap data
+        df <- data.frame(
+            labels = components,
+            values = values,
+            colors = colors,
+            parents = rep("", length(components)),
+            stringsAsFactors = FALSE
+        )
+
+        # Add root node
+        total_payment <- sum(values)
+        df <- rbind(
+            data.frame(
+                labels = paste0("Total Monthly Payment<br>$", format(round(total_payment), big.mark = ",")),
+                values = total_payment,
+                colors = "#34495E",
+                parents = "",
+                stringsAsFactors = FALSE
+            ),
+            data.frame(
+                labels = paste0(components, "<br>$", format(round(values), big.mark = ",")),
+                values = values,
+                colors = colors,
+                parents = rep(paste0("Total Monthly Payment<br>$", format(round(total_payment), big.mark = ",")), length(components)),
+                stringsAsFactors = FALSE
+            )
+        )
+
+        p <- plot_ly(
+            data = df,
+            type = "treemap",
+            labels = ~labels,
+            values = ~values,
+            parents = ~parents,
+            marker = list(
+                colors = ~colors,
+                line = list(width = 3, color = "white")
+            ),
+            textinfo = "label+percent parent",
+            textfont = list(size = 14, color = "white"),
+            hovertemplate = "<b>%{label}</b><br>Monthly Cost: $%{value:,.0f}<br>Percentage of Total: %{percentParent}<br><extra></extra>"
+        ) %>%
+            layout(
+                title = list(
+                    text = "Monthly Payment Breakdown",
+                    font = list(size = 16, color = "#2C3E50")
+                ),
+                font = list(size = 14),
+                margin = list(l = 10, r = 10, t = 50, b = 10)
+            )
+
+        p
+    })
+
+    # Summary payment Year-by-Year breakdown
     output$payment_breakdown_summary <- renderTable({
         calc <- calculations()
 

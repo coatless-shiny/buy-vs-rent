@@ -78,25 +78,19 @@ ui <- page_sidebar(
             title = "Financial Analysis",
             icon = icon("chart-bar"),
             layout_columns(
-                col_widths = c(6, 6),
-
                 # Summary metrics
-                layout_columns(
-                    col_widths = c(12),
-                    value_box(
-                        title = "Net Benefit of Buying",
-                        value = textOutput("net_benefit"),
-                        showcase = icon("dollar-sign"),
-                        theme = "secondary"
-                    )
+                col_widths = c(6, 6),
+                value_box(
+                    title = "Net Benefit of Buying",
+                    value = textOutput("net_benefit"),
+                    showcase = icon("dollar-sign"),
+                    theme = "secondary"
                 ),
-
-                # Mortgage breakdown
-                card(
-                    card_header("Monthly Payment Breakdown"),
-                    card_body(
-                        tableOutput("payment_breakdown_summary")
-                    )
+                value_box(
+                    title = "Monthly Payment (P&I)",
+                    value = textOutput("monthly_payment"),
+                    showcase = icon("calendar-check"),
+                    theme = "primary"
                 )
             ),
 
@@ -121,11 +115,11 @@ ui <- page_sidebar(
 
             br(),
 
-            # Detailed breakdown
+            # Monthly Payment Breakdown Treemap
             card(
-                card_header("Year-by-Year Breakdown"),
+                card_header("Monthly Payment Breakdown"),
                 card_body(
-                    DT::dataTableOutput("breakdown_table")
+                    plotlyOutput("payment_breakdown_treemap", height = "400px")
                 )
             )
         ),
@@ -134,7 +128,7 @@ ui <- page_sidebar(
             title = "Mortgage Details",
             icon = icon("home"),
             layout_columns(
-                col_widths = c(4, 4, 4),
+                col_widths = c(3, 3, 3, 3),
 
                 value_box(
                     title = "Loan Amount",
@@ -144,17 +138,24 @@ ui <- page_sidebar(
                 ),
 
                 value_box(
-                    title = "Monthly Payment (P&I)",
-                    value = textOutput("monthly_payment"),
-                    showcase = icon("calendar-check"),
-                    theme = "secondary"
-                ),
-
-                value_box(
                     title = "Total Interest Paid",
                     value = textOutput("total_interest"),
                     showcase = icon("percentage"),
                     theme = "info"
+                ),
+
+                value_box(
+                    title = "Total Cost of Loan",
+                    value = textOutput("total_loan_cost"),
+                    showcase = icon("money-bill-wave"),
+                    theme = "warning"
+                ),
+
+                value_box(
+                    title = "Payoff Date",
+                    value = textOutput("payoff_date"),
+                    showcase = icon("calendar-alt"),
+                    theme = "success"
                 )
             ),
 
