@@ -45,7 +45,20 @@ ui <- page_sidebar(
                 numericInput("property_tax_rate", "Property Tax Rate (%/year)", value = 1.2, min = 0, max = 5, step = 0.1),
                 numericInput("insurance_annual", "Home Insurance ($/year)", value = 1200, min = 0, step = 100),
                 numericInput("maintenance_pct", "Maintenance Cost (%/year of home value)", value = 1, min = 0, max = 5, step = 0.1),
-                numericInput("closing_costs", "Closing Costs ($)", value = 10000, min = 0, step = 1000)
+                numericInput("closing_costs", "Closing Costs ($)", value = 10000, min = 0, step = 1000),
+
+                # PMI inputs
+                hr(),
+                h5("Private Mortgage Insurance (PMI)"),
+                p(class = "text-muted small", "PMI is required when down payment < 20% and is removed when loan-to-value reaches 78%"),
+                numericInput("pmi_rate", "PMI Rate (%/year of loan amount)", value = 0.5, min = 0, max = 2, step = 0.1),
+                numericInput("pmi_increase", "Annual PMI Increase (%)", value = 0, min = 0, max = 10, step = 0.5),
+
+                # HOA inputs
+                hr(),
+                h5("Homeowners Association (HOA)"),
+                numericInput("hoa_monthly", "Monthly HOA Fee ($)", value = 0, min = 0, step = 25),
+                numericInput("hoa_increase", "Annual HOA Increase (%)", value = 3, min = 0, max = 15, step = 0.5)
             ),
 
             accordion_panel(
@@ -185,7 +198,10 @@ ui <- page_sidebar(
                     card_header("Detailed Payment Breakdown"),
                     card_body(
                         h4("Monthly Costs:"),
-                        tableOutput("payment_breakdown")
+                        tableOutput("payment_breakdown"),
+                        br(),
+                        h5("PMI Information:"),
+                        textOutput("pmi_info")
                     )
                 )
             )
@@ -278,6 +294,16 @@ ui <- page_sidebar(
                             tags$li("Down payment assistance programs")
                         ),
 
+                        h4("Understanding PMI & HOA:"),
+                        tags$ul(
+                            tags$li("PMI protects the lender if you default on your loan"),
+                            tags$li("PMI is automatically removed at 78% loan-to-value ratio"),
+                            tags$li("You can request PMI removal at 80% loan-to-value ratio"),
+                            tags$li("HOA fees cover community amenities and maintenance"),
+                            tags$li("HOA fees typically increase 2-5% annually"),
+                            tags$li("Review HOA financial statements and bylaws before buying")
+                        ),
+
                         h4("Important Factors Not in Calculator:"),
                         tags$ul(
                             tags$li("Quality of schools and neighborhoods"),
@@ -293,7 +319,8 @@ ui <- page_sidebar(
                             tags$li("No emergency fund after down payment"),
                             tags$li("Unstable employment or income"),
                             tags$li("Planning to move within 2-3 years"),
-                            tags$li("Local market showing signs of bubble")
+                            tags$li("Local market showing signs of bubble"),
+                            tags$li("High or rapidly increasing HOA fees")
                         )
                     )
                 )

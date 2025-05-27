@@ -22,10 +22,19 @@ server <- function(input, output, session) {
         monthly_insurance <- input$insurance_annual / 12
         monthly_maintenance <- input$home_price * input$maintenance_pct / 100 / 12
 
-        total_monthly_own <- monthly_pi + monthly_property_tax + monthly_insurance + monthly_maintenance
+        # Calculate down payment upfront
+        down_payment <- input$home_price * input$down_payment_pct / 100
 
-        # Calculate costs over time
+        # Calculate costs over time with PMI and HOA
         years <- 1:input$time_horizon
+
+        # PMI calculations - only if down payment < 20%
+        pmi_required <- input$down_payment_pct < 20
+        initial_pmi_monthly <- if(pmi_required) {
+            loan_amount * input$pmi_rate / 100 / 12
+        } else {
+            0
+        }
 
         # Rent costs (with annual increases)
         rent_costs <- sapply(years, function(y) {
@@ -33,19 +42,53 @@ server <- function(input, output, session) {
             annual_rent
         })
 
-        # Buy costs
-        down_payment <- input$home_price * input$down_payment_pct / 100
-
+        # Calculate monthly costs year by year (including PMI removal and HOA increases)
         buy_costs <- do.call(rbind, lapply(years, function(y) {
-            # Annual ownership costs
-            annual_own <- total_monthly_own * 12
-
             # Home value at end of year
             home_value <- input$home_price * (1 + input$home_appreciation/100)^y
 
-            # Remaining loan balance
+            # Remaining loan balance at end of year
             remaining_balance <- loan_amount * ((1 + monthly_rate)^num_payments - (1 + monthly_rate)^(y*12)) /
                 ((1 + monthly_rate)^num_payments - 1)
+
+            # Calculate monthly costs for this year
+            monthly_costs_this_year <- numeric(12)
+            total_pmi_this_year <- 0
+            total_hoa_this_year <- 0
+
+            for(month in 1:12) {
+                month_number <- (y-1)*12 + month
+
+                # Calculate remaining balance at this specific month
+                remaining_balance_month <- loan_amount * ((1 + monthly_rate)^num_payments - (1 + monthly_rate)^month_number) /
+                    ((1 + monthly_rate)^num_payments - 1)
+
+                # Calculate home value at this month (linear interpolation within year)
+                home_value_month <- input$home_price * (1 + input$home_appreciation/100)^((month_number-1)/12)
+
+                # Calculate LTV ratio
+                ltv_ratio <- remaining_balance_month / home_value_month
+
+                # PMI for this month (with annual increases, removed at 78% LTV)
+                pmi_this_month <- if(pmi_required && ltv_ratio > 0.78) {
+                    annual_pmi_rate <- input$pmi_rate * (1 + input$pmi_increase/100)^(y-1)
+                    loan_amount * annual_pmi_rate / 100 / 12
+                } else {
+                    0
+                }
+
+                # HOA for this month (with annual increases)
+                hoa_this_month <- input$hoa_monthly * (1 + input$hoa_increase/100)^(y-1)
+
+                total_pmi_this_year <- total_pmi_this_year + pmi_this_month
+                total_hoa_this_year <- total_hoa_this_year + hoa_this_month
+
+                monthly_costs_this_year[month] <- monthly_pi + monthly_property_tax +
+                    monthly_insurance + monthly_maintenance + pmi_this_month + hoa_this_month
+            }
+
+            # Annual ownership costs
+            annual_own <- sum(monthly_costs_this_year)
 
             # Equity built
             equity <- home_value - remaining_balance
@@ -65,9 +108,23 @@ server <- function(input, output, session) {
                 cumulative_cost = total_costs,
                 home_value = home_value,
                 equity = equity,
-                opportunity_cost = opportunity_cost
+                opportunity_cost = opportunity_cost,
+                annual_pmi = total_pmi_this_year,
+                annual_hoa = total_hoa_this_year,
+                average_monthly_payment = annual_own / 12
             )
         }))
+
+        # Calculate current year 1 monthly costs for display
+        current_pmi_monthly <- if(pmi_required) {
+            loan_amount * input$pmi_rate / 100 / 12
+        } else {
+            0
+        }
+        current_hoa_monthly <- input$hoa_monthly
+
+        total_monthly_own <- monthly_pi + monthly_property_tax + monthly_insurance +
+            monthly_maintenance + current_pmi_monthly + current_hoa_monthly
 
         list(
             loan_amount = loan_amount,
@@ -75,10 +132,13 @@ server <- function(input, output, session) {
             monthly_property_tax = monthly_property_tax,
             monthly_insurance = monthly_insurance,
             monthly_maintenance = monthly_maintenance,
+            monthly_pmi = current_pmi_monthly,
+            monthly_hoa = current_hoa_monthly,
             total_monthly_own = total_monthly_own,
             rent_costs = rent_costs,
             buy_costs = buy_costs,
-            down_payment = down_payment
+            down_payment = down_payment,
+            pmi_required = pmi_required
         )
     })
 
@@ -119,6 +179,17 @@ server <- function(input, output, session) {
         benefit <- total_rent_cost - net_buy_cost
 
         paste0("$", format(round(benefit), big.mark = ","))
+    })
+
+    # PMI information
+    output$pmi_info <- renderText({
+        calc <- calculations()
+        if(calc$pmi_required) {
+            paste0("PMI required (down payment < 20%). ",
+                   "PMI will be automatically removed when loan-to-value ratio reaches 78%.")
+        } else {
+            "No PMI required (down payment ≥ 20%)."
+        }
     })
 
     # Cost comparison plot
@@ -165,14 +236,14 @@ server <- function(input, output, session) {
         df <- data.frame(
             Year = years,
             Monthly_Rent = rep(input$monthly_rent, length(years)) * (1 + input$rent_increase/100)^(years-1),
-            Monthly_Own = rep(calc$total_monthly_own, length(years))
+            Monthly_Own = calc$buy_costs$average_monthly_payment
         )
 
         p <- plot_ly(df, x = ~Year) %>%
             add_bars(y = ~Monthly_Rent, name = "Monthly Rent", marker = list(color = "#E74C3C")) %>%
             add_bars(y = ~Monthly_Own, name = "Monthly Ownership", marker = list(color = "#2C3E50")) %>%
             layout(
-                title = "Monthly Housing Costs",
+                title = "Monthly Housing Costs (including PMI removal)",
                 xaxis = list(title = "Year"),
                 yaxis = list(title = "Monthly Cost ($)"),
                 barmode = 'group'
@@ -191,17 +262,19 @@ server <- function(input, output, session) {
             Year = years,
             Annual_Rent = calc$rent_costs,
             Annual_Ownership = calc$buy_costs$annual_cost,
+            Annual_PMI = calc$buy_costs$annual_pmi,
+            Annual_HOA = calc$buy_costs$annual_hoa,
             Home_Value = calc$buy_costs$home_value,
             Equity_Built = calc$buy_costs$equity,
             Opportunity_Cost = calc$buy_costs$opportunity_cost
         )
 
         # Format as currency
-        df[, 2:6] <- lapply(df[, 2:6], function(x) paste0("$", format(round(x), big.mark = ",")))
+        df[, 2:8] <- lapply(df[, 2:8], function(x) paste0("$", format(round(x), big.mark = ",")))
 
         DT::datatable(df, options = list(pageLength = 10, scrollX = TRUE),
-                      colnames = c("Year", "Annual Rent", "Annual Ownership",
-                                   "Home Value", "Equity Built", "Opportunity Cost"))
+                      colnames = c("Year", "Annual Rent", "Annual Ownership", "Annual PMI",
+                                   "Annual HOA", "Home Value", "Equity Built", "Opportunity Cost"))
     })
 
     # Mortgage calculations for guide tab
@@ -225,15 +298,33 @@ server <- function(input, output, session) {
     output$payment_breakdown <- renderTable({
         calc <- calculations()
 
+        components <- c("Principal & Interest", "Property Tax", "Insurance", "Maintenance")
+        amounts <- c(
+            paste0("$", format(round(calc$monthly_pi), big.mark = ",")),
+            paste0("$", format(round(calc$monthly_property_tax), big.mark = ",")),
+            paste0("$", format(round(calc$monthly_insurance), big.mark = ",")),
+            paste0("$", format(round(calc$monthly_maintenance), big.mark = ","))
+        )
+
+        # Add PMI if required
+        if(calc$pmi_required) {
+            components <- c(components, "PMI")
+            amounts <- c(amounts, paste0("$", format(round(calc$monthly_pmi), big.mark = ",")))
+        }
+
+        # Add HOA if > 0
+        if(input$hoa_monthly > 0) {
+            components <- c(components, "HOA")
+            amounts <- c(amounts, paste0("$", format(round(calc$monthly_hoa), big.mark = ",")))
+        }
+
+        # Add total
+        components <- c(components, "Total Monthly")
+        amounts <- c(amounts, paste0("$", format(round(calc$total_monthly_own), big.mark = ",")))
+
         data.frame(
-            Component = c("Principal & Interest", "Property Tax", "Insurance", "Maintenance", "Total"),
-            Monthly_Amount = c(
-                paste0("$", format(round(calc$monthly_pi), big.mark = ",")),
-                paste0("$", format(round(calc$monthly_property_tax), big.mark = ",")),
-                paste0("$", format(round(calc$monthly_insurance), big.mark = ",")),
-                paste0("$", format(round(calc$monthly_maintenance), big.mark = ",")),
-                paste0("$", format(round(calc$total_monthly_own), big.mark = ","))
-            )
+            Component = components,
+            Amount = amounts
         )
     }, colnames = FALSE)
 
@@ -241,15 +332,33 @@ server <- function(input, output, session) {
     output$payment_breakdown_summary <- renderTable({
         calc <- calculations()
 
+        components <- c("Principal & Interest", "Property Tax", "Insurance", "Maintenance")
+        amounts <- c(
+            paste0("$", format(round(calc$monthly_pi), big.mark = ",")),
+            paste0("$", format(round(calc$monthly_property_tax), big.mark = ",")),
+            paste0("$", format(round(calc$monthly_insurance), big.mark = ",")),
+            paste0("$", format(round(calc$monthly_maintenance), big.mark = ","))
+        )
+
+        # Add PMI if required
+        if(calc$pmi_required) {
+            components <- c(components, "PMI")
+            amounts <- c(amounts, paste0("$", format(round(calc$monthly_pmi), big.mark = ",")))
+        }
+
+        # Add HOA if > 0
+        if(input$hoa_monthly > 0) {
+            components <- c(components, "HOA")
+            amounts <- c(amounts, paste0("$", format(round(calc$monthly_hoa), big.mark = ",")))
+        }
+
+        # Add total
+        components <- c(components, "Total Monthly")
+        amounts <- c(amounts, paste0("$", format(round(calc$total_monthly_own), big.mark = ",")))
+
         data.frame(
-            Component = c("Principal & Interest", "Property Tax", "Insurance", "Maintenance", "Total Monthly"),
-            Amount = c(
-                paste0("$", format(round(calc$monthly_pi), big.mark = ",")),
-                paste0("$", format(round(calc$monthly_property_tax), big.mark = ",")),
-                paste0("$", format(round(calc$monthly_insurance), big.mark = ",")),
-                paste0("$", format(round(calc$monthly_maintenance), big.mark = ",")),
-                paste0("$", format(round(calc$total_monthly_own), big.mark = ","))
-            )
+            Component = components,
+            Amount = amounts
         )
     }, colnames = FALSE, striped = TRUE)
 
@@ -327,6 +436,7 @@ server <- function(input, output, session) {
         })
 
         DT::datatable(df,
+                      rownames = FALSE,
                       options = list(pageLength = 15, scrollX = TRUE),
                       colnames = c("Year", "Beginning Balance", "Total Payment",
                                    "Interest Payment", "Principal Payment", "Ending Balance",
@@ -347,6 +457,7 @@ server <- function(input, output, session) {
         })
 
         DT::datatable(df,
+                      rownames = FALSE,
                       options = list(pageLength = 12, scrollX = TRUE),
                       colnames = c("Payment #", "Month", "Year", "Beginning Balance",
                                    "Interest Payment", "Principal Payment", "Ending Balance",
